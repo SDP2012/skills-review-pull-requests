@@ -1,0 +1,113 @@
+name: Complete Exercise
+
+on:
+  push:
+    branches:
+      - copilot/skills-review-pull-requests
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  complete_exercise:
+    name: Complete Review PR Exercise
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create update-game branch with game over message update
+        run: |
+          if git ls-remote --heads origin update-game | grep -q update-game; then
+            echo "Branch update-game already exists, skipping creation."
+            exit 0
+          fi
+          git checkout -b update-game
+          sed -i 's/Game over/Game over, refresh to play again 🧑‍💻 🤖!/g' index.html
+          git add index.html
+          git commit -m "Update game over message"
+          git push origin update-game
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create PR from update-game to main
+        id: create_pr
+        run: |
+          # Check if PR already exists
+          EXISTING=$(gh pr list --head update-game --base main --state open --json number --jq '.[0].number // ""')
+          if [ -n "$EXISTING" ]; then
+            echo "PR already exists: #$EXISTING"
+            echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PR_URL=$(gh pr create \
+            --head update-game \
+            --base main \
+            --title "Update game over message" \
+            --body "Update the game over message so people know how to play again!")
+          PR_NUMBER=$(echo "$PR_URL" | grep -oP '(?<=pull/)\d+')
+          echo "Created PR #$PR_NUMBER"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assign PR to repository owner
+        run: |
+          PR=${{ steps.create_pr.outputs.pr_number }}
+          OWNER=$(gh repo view --json owner --jq '.owner.login')
+          gh pr edit "$PR" --add-assignee "$OWNER" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Submit a review comment
+        run: |
+          PR=${{ steps.create_pr.outputs.pr_number }}
+          # Check if review already exists
+          EXISTING_REVIEW=$(gh api repos/${{ github.repository }}/pulls/${PR}/reviews \
+            --jq '[.[] | select(.body == "Looks good to me. I think this is more intuitive. Nice work!")] | length')
+          if [ "$EXISTING_REVIEW" -gt 0 ]; then
+            echo "Review already exists, skipping."
+            exit 0
+          fi
+          gh pr review "$PR" \
+            --comment \
+            --body "Looks good to me. I think this is more intuitive. Nice work!"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply suggested change to update-game branch
+        run: |
+          git fetch origin update-game
+          git checkout update-game
+          # Apply the suggestion: make the end game message more friendly
+          CURRENT=$(grep '<h2 hidden>' index.html | head -1)
+          if echo "$CURRENT" | grep -q "Want to play again"; then
+            echo "Suggestion already applied, skipping."
+            exit 0
+          fi
+          sed -i 's|<h2 hidden>Game over, refresh to play again 🧑‍💻 🤖!</h2>|<h2 hidden>Game over! Want to play again?! Just click refresh. 🧑‍🚀!</h2>|' index.html
+          git add index.html
+          git commit -m "Make the end game experience more friendly"
+          git push origin update-game
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge the PR
+        run: |
+          PR=${{ steps.create_pr.outputs.pr_number }}
+          gh pr merge "$PR" --merge --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
