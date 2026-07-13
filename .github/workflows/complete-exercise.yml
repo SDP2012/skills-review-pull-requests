@@ -53,12 +53,13 @@ jobs:
             echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          PR_URL=$(gh pr create \
+          PR_NUMBER=$(gh pr create \
             --head update-game \
             --base main \
             --title "Update game over message" \
-            --body "Update the game over message so people know how to play again!")
-          PR_NUMBER=$(echo "$PR_URL" | grep -oP '(?<=pull/)\d+')
+            --body "Update the game over message so people know how to play again!" \
+            --json number \
+            --jq '.number')
           echo "Created PR #$PR_NUMBER"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
         env:
@@ -92,12 +93,12 @@ jobs:
         run: |
           git fetch origin update-game
           git checkout update-game
-          # Apply the suggestion: make the end game message more friendly
-          CURRENT=$(grep '<h2 hidden>' index.html | head -1)
-          if echo "$CURRENT" | grep -q "Want to play again"; then
+          # Check if the suggestion has already been applied to this specific line
+          if grep -qF '<h2 hidden>Game over! Want to play again?! Just click refresh. 🧑‍🚀!</h2>' index.html; then
             echo "Suggestion already applied, skipping."
             exit 0
           fi
+          # Apply the suggestion: make the end game message more friendly
           sed -i 's|<h2 hidden>Game over, refresh to play again 🧑‍💻 🤖!</h2>|<h2 hidden>Game over! Want to play again?! Just click refresh. 🧑‍🚀!</h2>|' index.html
           git add index.html
           git commit -m "Make the end game experience more friendly"
