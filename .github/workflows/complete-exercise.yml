@@ -36,6 +36,11 @@ jobs:
             exit 0
           fi
           git checkout -b update-game
+          # Global replacement updates all four 'Game over' occurrences:
+          #   1. <h2 hidden>Game over</h2>
+          #   2. "Game over: Draw"
+          #   3. "Game over: You win"
+          #   4. "Game over: Robot wins"
           sed -i 's/Game over/Game over, refresh to play again 🧑‍💻 🤖!/g' index.html
           git add index.html
           git commit -m "Update game over message"
@@ -91,15 +96,17 @@ jobs:
 
       - name: Apply suggested change to update-game branch
         run: |
+          # The following message is the exact text specified in the exercise for Step 4 suggestion
+          FINAL_H2='<h2 hidden>Game over! Want to play again?! Just click refresh. 🧑‍🚀!</h2>'
           git fetch origin update-game
           git checkout update-game
-          # Check if the suggestion has already been applied to this specific line
-          if grep -qF '<h2 hidden>Game over! Want to play again?! Just click refresh. 🧑‍🚀!</h2>' index.html; then
+          # Check if the suggestion has already been applied
+          if grep -q "$FINAL_H2" index.html; then
             echo "Suggestion already applied, skipping."
             exit 0
           fi
           # Apply the suggestion: make the end game message more friendly
-          sed -i 's|<h2 hidden>Game over, refresh to play again 🧑‍💻 🤖!</h2>|<h2 hidden>Game over! Want to play again?! Just click refresh. 🧑‍🚀!</h2>|' index.html
+          sed -i "s|<h2 hidden>Game over, refresh to play again 🧑‍💻 🤖!</h2>|${FINAL_H2}|" index.html
           git add index.html
           git commit -m "Make the end game experience more friendly"
           git push origin update-game
@@ -109,6 +116,12 @@ jobs:
       - name: Merge the PR
         run: |
           PR=${{ steps.create_pr.outputs.pr_number }}
-          gh pr merge "$PR" --merge --delete-branch
+          # Check PR is in a mergeable state before attempting
+          MERGEABLE=$(gh pr view "$PR" --json mergeable --jq '.mergeable')
+          if [ "$MERGEABLE" != "MERGEABLE" ]; then
+            echo "PR #$PR is not mergeable (state: $MERGEABLE). Skipping merge."
+            exit 0
+          fi
+          gh pr merge "$PR" --merge --delete-branch || echo "Merge failed: check branch protection rules or conflicts."
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
